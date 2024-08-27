@@ -1,0 +1,89 @@
+ECE 391
+Alexander Kaplich
+
+MP2 - Checkpoint 1
+
+_________________________________
+BUGLOG
+_________________________________
+
+
+FUNCTION: draw_vert_line(int x)
+WHERE: modex.c
+- the only real issue was that I was incrementing my address by IMAGE_X_DIM, to get the next value in the column of vertical line. Instead I should increment by SCROLL_X_WIDTH which is IMAGE_X_DIM/4 because the buffer contains planes and the address is for a single plane, so if I need to traverse all the values of a plane I need to read every fourth value in the actual coordinates of the image.
+
+
+
+FUNCTION: void show_status_buffer(int level, int fruits, int time_info[6], int background_color) 
+WHERE: modex.c
+- the main bug was actually just setting the background for the status bar, originally I thought that I would do that in string to ascii converter but I was getting an issue where characters were displaying but the background was not getting filled in all the way, there were still black dots everywhere for where there should have been background_color pixels. I ended up just setting all the values of my image_buffer array to the background_color using a memset function that I found in C library doc, loading the background color into the buffer before drawing the actual data.
+
+
+
+FUNCTION: copy_image(unsigned char* img, unsigned short scr_addr)
+WHERE: modex.c
+- small bug for already written copy_image. The 320x200 image contains 16000 addresses (4 pixels per address), this is if the maze took up the entire VGA window. We actually have a 320x18 status bar on the bottom of the window which actually makes the "game screen" slightly smaller (320x182). Thus the amount of data we move in the assembly instructions is: ORIGINAL_SIZE_SCREEN - STATUS_BAR_SIZE = 16000 - 1440. 
+
+
+
+FUNCTION: set_mode_X()
+WHERE: modex.c
+- annoying bug, similar to the one in copy_image, the target image needs to be shifted by 1440 pixels because in VGA memory the two image frames were initially stored at 0x0000, but not that we have added the status bar, it must go above the frames and it should start at 0x0000 - resulting in the image data in the VGA memory being shifted by 1400 or 0x5A0.
+
+
+
+FUNCTION: string_ascii_converter(char* string, unsigned char* image_buffer)
+WHERE: text.c
+- one of the problems was in my index calculation; I accounted for- the offset from the center, the row offset, the column offset and the string offset of the ascii value, but the values on the screen were getting drawn too high. I forgot that the actual text should start one pixel row below the start of the offset, since we added an arbitrary one row margin above and below the text. So to account for that we just need to start one row later (320 pixels). 
+- also for the longest time I was trying to apply my mask directly to the buffer by anding it with the mask and then moving on to the next character, this is less of a bug and more me just not understanding what the point of a mask is. The proper application of a mask, is a kind of stencil that you can indirectly apply on some data to extract relevant information, the mask should not be writing or making any changes to the data in this function. 
+- shifting the mask by incrementing it by 1 (++), instead just use the << operation to left shift the actual bits. 
+
+
+
+FUNCTION: rtc_thread(void *arg)
+WHERE: mazegame.c
+- in regards to the draw_masked_block function and how it's implemented in mazegame.c :  I was originally creating the unsigned char saved_block variable directly inside the function instead of passing it in in mazegame. The problem I figured out is, it wouldn't make sense to create the old_block_buffer inside the draw functions themselves because the purpose of old_block_buffer is to store the original block data before modifications are made to the screen. Creating it within the draw functions would defeat this purpose, as it would be overwritten every time the draw function is called, thus losing the original block data. Thus I needed to pass it in as a parameter to the draw functions to ensure it retains the original data of the block until it's needed to restore the screen.
+- one more bug I figured out is that around line 562 - where I am updating my screen and redrawing the screen when the user presses a keyboard button press to change the direction of the character. The if statement to check if (need redraw) prevents us from redrawing if the player is standing in a corner since the "next block" is out of bounds and direction of motion is set to DIRSTOP, thus the variable need_redraw is never set and we don't update the screen if we are standing directly in a corner. To fix the issue we can simply move the show_screen() out of the for loop and basically unconditionally update the block/screen every time. 
+
+
+
+FUNCTION: draw_masked_block(int posx ... )
+WHERE: modex.c
+- In the function draw_masked_block, the line old_buffer += 1 is responsible for advancing the pointer to the next location in the old_buffer array after each pixel is processed. If this line is not included, the old_buffer pointer will not be updated correctly, causing it to point to the same memory location throughout the loop. As a result, the old_buffer array will not store the correct old block pixel values. I did not add this line, and I was only updating the mask which is an issue. 
+
+
+
+
+
+MP2 - Checkpoint 2
+
+FUNCTION: int tux_set_led(struct tty_struct* tty, unsigned long arg)
+WHERE: tuxctl-ioctl.c
+- an intersting bug that I had was that I was trying to modify the 6 byte long packet that set led was supposed to write to the TUX based on some ascii value that it received. 
+by convention the second half of the second byte of the packet should contain the LED's that should get written to. At first I thought we could just reuse the same LED's that 
+were passed in as an argument but that was not working and breaking my code. Instead I condintionally set all the LED's to on by writting 0x0F to the byte. This means every time
+my TUX clock is updated all of the segments are lit up. If there is no value in the LED then it's set to 0 which is just the default value for time. I hope this was correct.
+Visually it's slightly different to the expected behavior for the TUX, but it's such a small difference that I was not willing to figure out how to turn LED's off.
+
+
+FUNCTION: int tux_buttons(struct tty_struct* tty, unsigned long arg)
+WHERE: tuxctl-ioctl.c
+- the jist of the problem is, tux buttons should be writing to the argument that is passed in. This argument is a pointer to some data stored in User space, not the TUX or 
+the Tux controller. So in ordet to update this address I must use a function we used in mp1 which copies data from one memory space to user space. Originally I was trying to 
+write to the argument directly but as soon as I started using the function call it was writing properly. Here it's also easy to check if the function execution was successful
+based on whether or not copying to user memory returned a zero. 
+
+
+FUNCTION: tux_thread
+WHERE: mazegame.C
+- I was polling the call button variable in my switch case in the main body of the tux thread, the call button however as I realized is simply a int, (or bool) that's set depending 
+on whether of not the tux thread should wake up. I thought the variable should containt he actual button hex variable that corresponds to a specific button press.
+I changed this by using a new variable that I update in my rotc thread that changes from a BUTTON Pressed iotcl call, this modifies the variable directly which wakes the TUX
+thread and goes through the switch case polling that new variable.
+
+
+FUNCTION: int tux_init
+WHERE: tuxctl-ioctl.c
+- forgot to check if we should actually be calling the set led function if the previous command was execyuted properly using the ack flag that we declared in global space.
+this is just a test case thing.
+

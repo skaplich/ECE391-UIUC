@@ -1,0 +1,99 @@
+
+---- Bug Log ----
+
+Checkpoint 1
+
+1. When doing test_interrupts for rtc_handler, it crashed when we pressed a key
+To resolve this bug, we had to create a wrapper to save the eip because the program 
+did not know where to go after. We saved flags and registers and were able to overcome 
+this issue using this wrapper
+
+2. When trying to output keys on the screen, we were unable to print out the right characters
+To resolve this bug, we had to change how we were indexing through the array with the scancode
+values based on the scancode
+
+3. When trying to output keys on the screen, we were unable to print out the right characters
+when pressing caps and shift at the same time, this is because we only had one case and did not
+include if statements to print out the correct character when both caps and shift were pressed 
+at the same time
+
+4. When trying to initialize rtc, we were flipping the parameters of the outb since we looked
+at the osdev source and this was causing errors, so once we realized that it was flipped inputs
+we were able to overcome this error
+
+5. When trying to initialize the idt, we were not setting all of the reserve bits which resulted in
+our idt not being initialized properly, so once we accounted for all of the reserved bits and 
+assigned them properly, we were able to get out idt initialization working
+
+6. When trying to load gdt, we were running into a boot loop where it just kept looping at the starting
+screen. In order to overcome this error, we had to switch the location of our gdt_desc to after we 
+aligned gdt_bottom
+
+---------------------------------------------------------------------------------------------------------------
+Checkpoint 2
+
+1. There was a filesystem bug where we were not reading the correct data block due to a small error when we were setting the inode number for our dentry structure with the file type instead of the inode number.
+We solved this issue using GDB after seeing that multiple files supposedly all had the same inode number.
+
+2. Another filesystem issue occurred with how we were reading the data from the data blocks. We should have been going byte by byte but instead were going through every 4 bytes
+due to an incorrect pointer type, so we changed it to uint_8t *.
+
+3. There was an issue where echoing was printing an extra character. 
+We fixed this by updating the coordinates of screen_x and screen_y when we called the scrolling function in all cases.
+
+4. There was an issue when trying to test the RTC frequency. It was updating correctly manually, but when we tried to repeatedly update
+it in a for loop it stopped working. We moved the line where we set the frequency and write to the device outside of the for loop.
+
+5. When trying to output keys on the screen, we were unable to print out the right characters
+when pressing caps and shift at the same time, this is because we only had one case and did not
+include if statements to print out the correct character when both caps and shift were pressed 
+at the same time
+
+---------------------------------------------------------------------------------------------------------------
+Checkpoint 3 
+
+1. Our halt was page faulting when trying to change EBP, because we were going to the wrong execute system call linkage. We meant to go to the PCB EBP of the current
+ PCB but were going to the parent PCB EBP. 
+
+2. We were page faulting during the exception handlers because we did not handle the case where we try to halt from the shell. We fixed this by executing shell
+ within the halt function.
+
+3. We were page faulting when going into the user page because when setting the appropriate page, we forgot to set the page directory user/supervisor setting to 1. 
+We fixed this by setting it to 1.
+
+4. Page faulting for certain syscalls was occurring quite a lot. This is because we were not doing bound checking. So, we began to make sure fd was between 3 and 8.
+
+---------------------------------------------------------------------------------------------------------------
+Checkpoint 4
+
+1. Bug with the read_data function which was not caught in testing of the previous checkpoints because read_data was not actually
+called multiple times on the same file. The read_data function was not actually using the offset when calculating where in the data block
+we should start reading information from. We fixed this by adding an additional condition that is applied to only the first block
+from the data blocks array that will be read, in this case the offset will be applied to the start of the block.
+
+2. Another bug was that our putc was failing bounds checking for scrolling and it would not udpate the "cursor" or the location of
+screenx and screeny after reaching the end of a line. We updated the bounds checks of putc/added more of them to fix the problem
+which allowed cat to print both of the frames properly.
+
+3. Open file was doing some very bad things with the function pointers in the fda array. This error was caught when trying to 
+bugfix grep. The function pointers for the directory in fd 2 would get overwritten when creating a set of pointers for
+fd 3 when opening a new file. The file pointers for directory and the newly opened file would both be file_open, file_read etc.
+rather than being different for each one since one is a file and the other a directory. This was happening because the function
+pointers were assigned as a reference to a temporary struct in the open function that we used to set the pointers in the fda 
+and our theory is that because they are asigned a refrence opening one file changes all other files that use this pointer.
+The fix was just to use one pointer per file type, one for rtc, one for directory and one for the regular files.
+
+4. Multiple shell functionality, did not decrement the current pid, a global variable that represents the current process that 
+is active. Execting a shell from a shell would mean the current pid is updated to one that is higher than its parent shell, but
+an exit call should decrement because we are returning to the parent shell and the current pid becomes lower.
+---------------------------------------------------------------------------------------------------------------
+Checkpoint 5
+1. We found that if we typed a command in one terminal and pressed enter, nothing would happen and the entire program would freeze. This is because
+of the way we configured our check for enter function in read terminal (so if we were on terminal 1 but the scheduler was on 3 and the user pressed enter, terminal 3 would not pick it up).
+We got around this by keeping track of enters as a global variable.
+
+2. We ran into a multitude of page faults as a result of PID issues. We then realized that when the scheduler context switches, it does not actually call execute, so the pid
+was not getting updated. We started updating the PID inside the scheduling function, which fixed this issue.
+
+3. We noticed that sometimes if enter was pressed on one terminal, another terminal would read the same enter and there would be a duplicate "391OS>" - we got around this by 
+stalling each read terminal function for each terminal in a for loop so that they could only process terminal input if we switched to their terminal.
